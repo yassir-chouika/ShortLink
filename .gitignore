@@ -1,0 +1,22 @@
+# Dependencies and generated output
+/node_modules/
+/.next/
+/out/
+/coverage/
+/playwright-report/
+/test-results/
+*.tsbuildinfo
+next-env.d.ts
+
+# Local secrets; the documented template is safe to commit
+.env*
+!.env.example
+
+# Local tools and operating systems
+/.vercel/
+/.agents/
+/.aws/
+/.codex/
+.DS_Store
+Thumbs.db
+*.log
