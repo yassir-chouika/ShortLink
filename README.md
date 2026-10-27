@@ -4,19 +4,18 @@ A lightweight URL shortener built as a full-stack portfolio project, one verifie
 milestone at a time. The planned stack is Next.js, TypeScript, PostgreSQL, Prisma,
 and Tailwind CSS, hosted on Vercel Hobby with a Neon Free database.
 
-**Current milestone: Phase 0 — project foundation.** The starter page, development
-configuration, tests, CI workflow, and documentation are ready. Dependencies are
-installed and locked, and local formatting, linting, TypeScript, component tests,
-production build, and browser tests pass under Node.js 24.22.1. The first commit,
-GitHub push, remote CI run, and deployment remain pending.
+**Current milestone: Phase 1 — database foundation.** PostgreSQL persistence,
+Prisma migrations, server-only access, and integration tests are implemented.
+Phase 0 is committed on `main` and its GitHub CI run passed. Phase 1 is on
+`feat/database-foundation`; its commit, PR, and deployment are pending.
 
 **Live demo:** pending deployment. Shortening, redirects, QR codes, and analytics
 will be implemented in later phases.
 
 ## 1. Goal
 
-Establish a small, maintainable application with repeatable local checks and CI
-before adding URL-shortening features. Stop after Phase 0 for verification.
+Establish tested persistence before adding URL-shortening endpoints. Stop after
+Phase 1 for verification; public creation and redirects are not implemented.
 
 ## 2. Architecture
 
@@ -25,8 +24,10 @@ before adding URL-shortening features. Stop after Phase 0 for verification.
 - Node.js 24.x in `.nvmrc`, package engines, CI, and the deployment instructions.
 - ESLint for code checks, Prettier for formatting, Vitest for component tests,
   and Playwright for production browser tests.
-- Database packages and configuration will be added with persistence in Phase 1.
-  This milestone needs no secrets or database.
+- PostgreSQL 17 and Prisma 7.10.1 with the `pg` adapter, a small connection pool,
+  and lazy server-only access through `getDb()`.
+- Separate application, migration, and test URLs. Client generation is automatic;
+  applying migrations is an explicit command.
 
 See [architecture](docs/architecture.md), [API status](docs/api.md),
 [dependency licenses](docs/dependencies.md), and
@@ -56,16 +57,22 @@ Open <http://localhost:3000>. On Linux, if Playwright reports missing system
 libraries, follow its instructions or run `npx playwright install --with-deps chromium`.
 Stop the development server with Ctrl+C when finished.
 
-**Commit `package-lock.json` with the first verified milestone.** Use `npm ci` on
+**Keep `package-lock.json` committed with dependency changes.** Use `npm ci` on
 fresh checkouts and in CI. Use `npm install` when deliberately changing
 dependencies, and review the resulting lockfile changes.
 
-No `.env` file is required now. `.env.example` reserves future server-only
-database variables; when persistence is added, copy it to `.env.local` and replace
-the placeholders. Environment files containing real values stay out of Git.
+The introduction page and builds require no environment file. For database work,
+copy `.env.example` to `.env.local` and follow the [database guide](docs/database.md).
+It covers Docker Compose and existing local PostgreSQL installations. Integration
+tests require a separate local database whose name ends in `_test`. Real
+credentials stay out of Git.
 
 ```text
 src/app/                 Layout, introduction page, styles, component test
+src/lib/                 Server-only database access and configuration checks
+prisma/                  Schema and versioned SQL migrations
+tests/integration/       PostgreSQL persistence and transaction tests
+tests/unit/              Test-database isolation checks
 tests/setup.ts           Shared DOM test setup
 tests/e2e/               Browser tests
 .github/workflows/ci.yml GitHub Actions checks
@@ -90,20 +97,35 @@ keyboard skip link, and checks that the page fits a mobile viewport. The Vitest
 test checks the introductory heading and the visible availability status. Use
 `npm run test:watch` while developing.
 
-All six commands above passed locally on **2026-10-26** under **Node.js 24.22.1**:
-one Vitest component test and two Chromium browser tests. The dependency
-installation also reported zero known vulnerabilities.
+The separate database suite requires a configured local test database:
+
+```bash
+npm run db:validate
+npm run test:integration
+```
+
+It applies the committed migration to that database, then tests persistence,
+lookup, uniqueness, and rollback. See [database verification](docs/database.md#verification-and-isolation).
+
+Verified locally on **2026-10-27** with **Node.js 24.22.1** and **PostgreSQL 17.10**:
+clean install and client generation, formatting, lint, schema validation, strict
+TypeScript, 14 unit/component tests, 4 database integration tests, production
+build, and 2 Chromium browser tests. No hosted database was created.
 
 For an additional manual check, view the page at desktop and mobile widths and
 use Tab then Enter to follow **Skip to content**. Look for browser errors and
 horizontal scrolling. The keyboard and mobile overflow checks are automated;
 a separate visual review has not been performed.
 
-CI runs the same checks on pushes to `main` and on pull requests, using a standard
-Ubuntu runner with read-only repository permissions and no database secrets. It
-does not upload test artifacts. Its first successful remote run is still pending.
+CI runs application checks without database URLs and a separate integration job
+with a disposable PostgreSQL service. Both use standard Ubuntu runners and
+read-only repository permissions, without hosted database secrets or uploaded
+artifacts. Phase 0's remote CI passed; Phase 1 needs a new PR run.
 
 ## 5. Documentation
+
+The [database guide](docs/database.md) explains the schema, connections, local
+setup, migrations, and test isolation.
 
 | Guide                                | Contents                                                                 |
 | ------------------------------------ | ------------------------------------------------------------------------ |
@@ -122,27 +144,25 @@ No paid API, trial, purchased domain, or background worker is required.
 
 ## 6. Git checkpoint
 
-Current local branch: **`main`**, initialized with no commits. The public GitHub
-repository is <https://github.com/yassir-chouika/ShortLink>; its URL and access were
-confirmed. A local remote, commit, and push have not been configured or performed.
+Current branch: **`feat/database-foundation`**, based on the pushed Phase 0 commit
+`8c53ff4` on `main`. The repository is <https://github.com/yassir-chouika/ShortLink>.
+No Phase 1 commit or push has been made.
 
-The first commit belongs on `main` as the verified baseline. The local checks above
-have passed. Review the changed files and lockfile, and configure your Git author
-if needed. Then follow [the exact first-push steps](docs/git-workflow.md#first-push).
-The proposed commit is:
+After local checks pass, review the schema, migration, client, tests, CI,
+environment example, lockfile, and docs as one milestone. Follow the
+[Phase 1 checkpoint](docs/git-workflow.md#phase-1-checkpoint). Proposed commit:
 
 ```text
-chore: initialize ShortLink development foundation
+feat: add PostgreSQL and Prisma database foundation
 ```
 
-There is no Phase 0 pull request; future milestones use short-lived feature
-branches and a reviewed PR into `main`. Before Vercel is connected, pushes trigger
-only GitHub Actions. After connection, `main` pushes trigger production, and
-feature branches and PRs trigger previews. Review both CI and the preview before
-merging. Do not tag `v1.0.0` before a complete, verified production deployment.
+Push this branch and open a PR into `main`; opening the PR triggers CI. If Vercel
+is connected, the feature push creates a preview and merging into `main` triggers
+production. Review both CI jobs and any preview before merging. Do not tag
+`v1.0.0` before a complete, verified production deployment.
 
 ## 7. Next milestone
 
-After Phase 0 is verified: introduce PostgreSQL and Prisma with a minimal link
-schema, a reviewed first migration, server-only connection handling, and database
-verification. No Phase 1 implementation has been started.
+After Phase 1 is verified: implement the first validated link-creation endpoint,
+short-code generation, collision handling, and API documentation. Redirects,
+analytics, and QR codes remain later work.
