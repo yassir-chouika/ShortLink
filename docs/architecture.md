@@ -1,14 +1,15 @@
 # Architecture
 
-## Phase 0: application foundation
+## Phase 1: application and database foundation
 
 ShortLink is a single Next.js application. The App Router owns pages and, in later
 phases, backend route handlers. Keeping the interface and backend in one repository
 reduces deployment and maintenance work for a small portfolio project.
 
-The current application is a static introduction page. It has no shortening,
-redirection, analytics, database access, or external API integrations yet. Its
-production build requires neither credentials nor a database connection.
+The current interface is a static introduction page. A database schema and
+server-only query client are implemented, with no public shortening, redirect,
+analytics, or external API endpoints yet. The production build requires neither
+credentials nor a database connection.
 
 | Area                 | Choice                                     | Reason                                                             |
 | -------------------- | ------------------------------------------ | ------------------------------------------------------------------ |
@@ -22,27 +23,31 @@ production build requires neither credentials nor a database connection.
 | CI                   | GitHub Actions on a standard Ubuntu runner | Repeat the same checks on pushes and pull requests.                |
 
 No remote fonts are fetched during the build. Dependencies are installed and
-resolved versions are recorded in `package-lock.json`. Include that file in the
-first commit; subsequent checkouts and CI use `npm ci` for reproducibility.
+resolved versions are recorded in `package-lock.json`. Checkouts and CI use
+`npm ci` for reproducibility.
 Use Node 24 consistently for local development, CI, and hosting.
 
 ## Project boundaries
 
 - `src/app/`: App Router layout, page, metadata, and global styles.
+- `src/lib/`: Lazy server-only database access and configuration checks.
+- `prisma/`: Schema and reviewed, versioned SQL migrations.
 - Component tests: small rendering and behavior checks alongside the application.
 - `tests/e2e/`: Playwright checks against a running application.
+- `tests/integration/`: Tests against a dedicated local PostgreSQL database.
 - `.github/workflows/`: automated validation.
 - `docs/`: architecture, API status, deployment, and dependency decisions.
 
-CI installs dependencies, then checks linting, formatting, TypeScript, unit tests,
-the production build, and browser tests. It needs no database secrets. Test reports
-remain local; the workflow does not upload artifacts to hosted storage.
+CI checks formatting, linting, schema validity, TypeScript, unit tests, production
+build, and browser tests without database credentials. A separate job creates a
+PostgreSQL 17 service container, applies the migration, and runs integration tests.
+No hosted database secrets or uploaded test artifacts are needed.
 
-## Planned database and backend
+## PostgreSQL and Prisma
 
-PostgreSQL and Prisma will be introduced in the next phase together with their
-schema, migrations, connection handling, and tests. They are not installed or
-configured in Phase 0.
+Prisma 7.10.1, its PostgreSQL adapter, and `pg` are installed. The `Link` model has
+a UUID identity, unique short code, text destination, and creation timestamp.
+See [the database guide](database.md) for schema details and local setup.
 
 The intended request path is:
 
@@ -50,17 +55,18 @@ The intended request path is:
 Browser -> Next.js page or route handler -> Prisma -> PostgreSQL
 ```
 
-Use the Node.js runtime for database routes, a pooled connection URL for application
-requests, and a direct connection URL for migration tooling when appropriate. Keep
-Prisma access in a server-only module, reuse the client during development, and
-bound connection pools for Vercel's serverless environment. Confirm these settings
-against the Prisma version installed during that phase.
+Future database routes use the Node.js runtime. `getDb()` creates a client lazily
+and caches it per process across requests and hot reloads. The pool has at most
+two connections and 10-second connection and idle timeouts. Each serverless
+instance has its own pool; production uses Neon's pooled URL. Migration commands
+use the separate `DIRECT_URL` and run explicitly, not during builds.
 
-Build-time client generation and schema migrations have different purposes.
-Client generation may become part of installation or build setup; production
-migrations must be an explicit, controlled step and must not run during every
-preview or ordinary application build. Preview and production databases must be
-isolated before write operations are deployed.
+Client generation runs during installation, type checks, and builds and does not
+connect to the database. Generated files are ignored by Git, ESLint, and Prettier.
+Migrations are committed SQL applied through `db:deploy`; local schema development
+uses `db:migrate`. Preview and production databases must be isolated before write
+operations are deployed. Integration migrations use only `TEST_DATABASE_URL`,
+guarded to require localhost and a `_test` database.
 
 URL redirects, click recording, and analytics will use our backend and database.
 QR codes will be generated locally with an open-source package. These features
@@ -68,8 +74,9 @@ must stay within free-tier resources without paid APIs or required background jo
 
 ## Configuration and security
 
-`.env.example` documents reserved database variables. Copy it to `.env.local` only
-when needed, and keep actual credentials out of Git. Nothing in Phase 0 reads
-`DATABASE_URL` or `DIRECT_URL`. Never expose credentials through a `NEXT_PUBLIC_`
-variable, a response, or logs. Future URL validation, abuse controls, and error
-responses will be designed and tested when shortening is implemented.
+`.env.example` documents local application, migration, and test connections. Copy
+it to `.env.local` when doing database work; keep real credentials out of Git.
+`DATABASE_URL` is checked only when `getDb()` is first called. Configuration errors
+name the variable without its value. Never expose credentials through a
+`NEXT_PUBLIC_` variable, a response, or logs. URL validation, abuse controls, and
+HTTP error responses will be implemented with the shortening endpoint.

@@ -1,8 +1,9 @@
 # API status
 
-Phase 0 defines **no API endpoints**. The `/` route serves the introduction page;
-it does not create or resolve short links. No database schema, redirect route,
-analytics collection, or QR-code endpoint exists yet.
+Phase 1 defines **no API endpoints**. The `/` route serves the introduction page;
+it does not create or resolve short links. The schema and server-only client now
+exist, but no redirect, analytics, or QR-code endpoint is exposed. See the
+[database guide](database.md) for persistence details.
 
 ## Tentative routes for later phases
 

@@ -2,20 +2,44 @@
 
 ## Current checkpoint
 
-The local repository is initialized on `main` with no commits. The public GitHub
-repository `yassir-chouika/ShortLink` exists and is accessible. No local remote,
-commit, or push has been performed. The lockfile has been generated, and all six
-README verification commands passed locally under Node.js 24.22.1. The first
-commit and push are ready for you to perform after reviewing the files.
+Phase 0 is committed as `8c53ff4` on `main`, pushed to
+`yassir-chouika/ShortLink`, and its GitHub CI run passed. The existing `origin`
+uses SSH. The current local branch is `feat/database-foundation`; no Phase 1
+commit or push has been performed. GitHub operations remain yours to perform.
 
-The scaffold spans `src/app/`, `tests/`, the root tooling and environment examples,
-`.github/workflows/ci.yml`, `README.md`, and `docs/`. Review those files together
-as one foundation milestone; do not split it into unnecessary activity commits.
+## Phase 1 checkpoint
+
+Review `prisma/`, both Prisma config files, `src/lib/`, database tests, Compose,
+the CI workflow, environment example, package manifest and lockfile, and docs.
+Include the SQL migration and migration lock; generated Prisma code and real
+environment files must remain untracked.
+
+After all local checks in the README and database guide pass:
+
+```bash
+git status --short --branch
+git add .
+git diff --cached --check
+git diff --cached --stat
+git diff --cached
+git commit -m "feat: add PostgreSQL and Prisma database foundation"
+git push -u origin feat/database-foundation
+```
+
+Open a PR with base `main` and compare `feat/database-foundation`. Opening the PR
+runs both application quality and PostgreSQL integration jobs. If Vercel is
+connected, the branch push creates a preview. Review the diff, both green CI jobs,
+and any preview before merging. Merging into `main` triggers production when
+Vercel is connected. This phase has no public database routes and needs no hosted
+migration for the introduction page.
+
+Do not add `origin` again, push Phase 1 directly to `main`, or tag a release yet.
 
 ## First push
 
-These are instructions to run after verification; they have not been executed.
-From the project directory, inspect your author identity:
+This Phase 0 step is completed. The commands below are a reference for a new
+repository; do not repeat them on the current feature branch. Inspect author
+identity when setting up another computer:
 
 ```bash
 git branch --show-current
@@ -67,12 +91,13 @@ connected with `main` as its production branch.
 
 ## Later milestones
 
-Start Phase 1 only after the Phase 0 checkpoint is verified:
+The Phase 1 branch has already been created locally. For a future milestone,
+start a new short-lived branch from updated `main` (this example is for Phase 2):
 
 ```bash
 git switch main
 git pull --ff-only
-git switch -c feat/database-foundation
+git switch -c feat/link-creation
 ```
 
 Work in small, complete milestones, updating tests and documentation with each
@@ -80,7 +105,7 @@ feature. Commit after the related checks pass. Push the branch when its mileston
 is ready for review:
 
 ```bash
-git push -u origin feat/database-foundation
+git push -u origin feat/link-creation
 ```
 
 Create a pull request into `main`. Once Vercel is connected this push creates a

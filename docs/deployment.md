@@ -1,10 +1,8 @@
 # Deployment
 
-Phase 0 prepares the application foundation. Dependencies and the lockfile are
-ready, and local formatting, lint, TypeScript, component tests, production build,
-and browser tests pass under Node.js 24.22.1. The GitHub repository exists; the
-first push, remote CI run, Vercel connection, Neon database, and live URL remain
-pending.
+Phase 0 is pushed to GitHub and its CI run passed. Phase 1's database foundation
+passes local verification on `feat/database-foundation`. Its PR,
+remote CI run, Vercel connection, Neon database, and live URL remain pending.
 
 ## Zero-cost hosting choices
 
@@ -24,19 +22,21 @@ reduce usage or wait for its reset; do not enable billable capacity.
 
 ## Connect GitHub to Vercel
 
-1. Push the verified Phase 0 repository to your personal GitHub account. Prefer a
-   public portfolio repository to use free standard Actions runners.
+1. Push the verified feature branch, open a PR, and merge into `main` after review
+   and green CI. This public repository uses free standard Actions runners.
 2. Sign in to Vercel and stay on the **Hobby** plan. Choose **Add New > Project**,
    connect GitHub, and import this repository with only the necessary access.
 3. Select the **Next.js** framework preset and the repository root as the root
-   directory. Use `npm ci`, `npm run build`, and Next.js's default output settings.
+   directory. Use `npm ci --include=dev`, `npm run build`, and Next.js's default
+   output settings. Development dependencies include the build-time Prisma CLI.
    Select Node.js **24.x**, matching the project configuration. See
    [supported runtimes](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions).
 4. Configure `main` as the production branch. Other branch pushes and pull requests
    should create preview deployments. Confirm that automatic Git deployments are
    enabled in the project's Git settings.
-5. Phase 0 needs no environment variables. Deploy and record the actual
-   `.vercel.app` URL only after the deployment succeeds.
+5. The introduction page needs no database variables. `npm ci` and the build
+   generate Prisma Client without connecting to PostgreSQL or applying migrations.
+   Deploy and record the actual `.vercel.app` URL only after success.
 6. Add that verified URL to the README and GitHub repository description. Do not
    create a `v1.0.0` tag until the complete application's production checks pass.
 
@@ -46,11 +46,12 @@ branch push triggers a preview. Vercel deployments and GitHub Actions run
 independently: a green build alone does not imply every CI check passed. Review CI
 and the preview before merging a pull request into `main`.
 
-## Database setup in a later phase
+## Hosted database setup
 
-Create a Neon **Free** project when persistence is implemented. Keep development,
-preview, and production data isolated within the free allowance. At minimum,
-production and preview must never share a writable database.
+The schema and connection code are implemented. Create a Neon **Free** project
+when preparing deployment of database-backed routes. Keep development, preview,
+and production isolated within the free allowance. Production and preview must
+never share a writable database. Local setup is in [the database guide](database.md).
 
 Set `DATABASE_URL` to the pooled application connection and reserve `DIRECT_URL`
 for a direct migration connection as required by the selected Prisma setup. Enter
@@ -59,11 +60,19 @@ preview database credentials only for Preview and production credentials only fo
 Production. Keep local credentials in ignored environment files. Never paste
 secrets into Git, documentation, or pull requests.
 
-Add Prisma Client generation when Prisma is installed. Apply reviewed migrations
-as an explicit release step against the intended database. Never place migration
-commands in the ordinary Next.js build: previews must not mutate production, and
-concurrent builds must not race to change its schema. Document the tested commands
-here when the database implementation exists.
+Prisma Client generation is already part of installation and the build. With
+`DIRECT_URL` set securely for the intended environment, inspect migration state
+and apply the reviewed migrations as an explicit release step:
+
+```bash
+npm run db:status
+npm run db:deploy
+```
+
+Run deployment from an environment that installs development tooling, including
+the pinned Prisma CLI. `db:migrate` is for local schema development only. Neither
+the Next.js build nor CI applies migrations to hosted databases. The integration
+job migrates only its disposable local PostgreSQL service.
 
 ## Verify a deployment
 
