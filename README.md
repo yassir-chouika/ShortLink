@@ -3,8 +3,8 @@
 A lightweight URL shortener built with Next.js, strict TypeScript, PostgreSQL,
 Prisma, and Tailwind CSS.
 
-**Status:** the introduction page, database foundation, link-creation API, and
-short-code redirects are implemented. The shortening interface is planned next.
+**Status:** the responsive shortening form, copyable results, database foundation,
+link-creation API, and short-code redirects are implemented.
 Analytics, QR codes, and public-launch abuse controls are later milestones.
 
 **Live demo:** pending deployment.
@@ -18,8 +18,8 @@ With nvm installed, `nvm install` and `nvm use` select the project runtime.
 npm ci
 ```
 
-Installation generates Prisma Client. The introduction page and production build
-work without database credentials. To use the creation API, create `.env.local`
+Installation generates Prisma Client. The home page and production build
+work without database credentials. To shorten links, create `.env.local`
 from `.env.example` if that file does not already exist.
 
 With Docker Engine and Compose available:
@@ -39,6 +39,25 @@ Compose binds PostgreSQL to localhost:5432 and preserves data in a named volume.
 `docker compose down` stops it without deleting that volume. An existing local
 PostgreSQL installation also works: create separate development and test databases
 and update the connection URLs.
+
+## Shorten and share
+
+Paste a complete HTTP(S) URL into the home-page form and select **Shorten link**.
+The result shows a full short URL and its saved destination. Use **Copy link** to
+copy it, or **Open link** to visit it in a new tab. Full links use the current
+page's origin, so local, preview, and production environments work independently.
+
+The form validates URLs before sending them; the backend independently enforces
+the same policy. Pending feedback prevents concurrent submissions. Errors preserve
+your input, and editing clears the previous result. Network failures do not retry
+the write automatically: a request can succeed even if its response is lost.
+
+Success moves keyboard focus to the result. Errors are announced and invalid
+input receives focus. Clipboard copying requires a supported secure browser
+context and can be denied; when unavailable, the link is selected for manual
+copying. See the [Clipboard API documentation](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText).
+JavaScript is required for the form. Created links are stored in PostgreSQL;
+the interface keeps no browser history or local-storage copy of your URLs.
 
 ### Environment variables
 
@@ -160,6 +179,7 @@ has its own pool.
 
 ```text
 src/app/                 Pages, metadata, styles, and API routes
+src/components/          Interactive shortening form and result
 src/lib/http/            Bounded JSON request handling
 src/lib/links/           Validation and collision-safe creation
 src/lib/db.ts            Server-only PostgreSQL client
@@ -211,12 +231,17 @@ their own records and never fall back to application or production credentials.
 The database browser suite starts the production server with its application
 connection explicitly overridden by the guarded test URL. It verifies creation,
 redirect headers, browser navigation, referrer suppression, HEAD, deleted links,
-and unsafe stored data. Destination pages are served by a local test fixture, so no
+and unsafe stored data. It also creates a link through the actual form, verifies
+the saved database record, reads the copied URL, and opens the destination.
+Destination pages are served by a local test fixture, so no
 external website is required. Run `npm run build` before either browser suite.
 Stop any development server using port 3000 before running the browser suites.
 
-Playwright starts the production build and checks keyboard navigation, mobile
-layout, and API routing. On Linux, its browser dependencies may require
+Playwright starts the production build and checks keyboard navigation, narrow
+mobile layouts, form validation, pending feedback, safe server errors, manual-copy
+fallback, and API routing. Database-free success/error UI tests explicitly mock
+the creation response; the PostgreSQL suite checks the real flow.
+On Linux, its browser dependencies may require
 `npx playwright install --with-deps chromium`.
 
 CI runs application checks without database URLs and integration tests against

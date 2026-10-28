@@ -21,7 +21,9 @@ test('home fits a narrow mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto('/');
 
-  await expect(page.getByText('Coming soon')).toBeVisible();
+  await expect(
+    page.getByRole('textbox', { name: 'Your long link' }),
+  ).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth,
