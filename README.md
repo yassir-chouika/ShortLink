@@ -1,168 +1,241 @@
 # Shrtnr. — ShortLink
 
-A lightweight URL shortener built as a full-stack portfolio project, one verified
-milestone at a time. The planned stack is Next.js, TypeScript, PostgreSQL, Prisma,
-and Tailwind CSS, hosted on Vercel Hobby with a Neon Free database.
+A lightweight URL shortener built with Next.js, strict TypeScript, PostgreSQL,
+Prisma, and Tailwind CSS.
 
-**Current milestone: Phase 1 — database foundation.** PostgreSQL persistence,
-Prisma migrations, server-only access, and integration tests are implemented.
-Phase 0 is committed on `main` and its GitHub CI run passed. Phase 1 is on
-`feat/database-foundation`; its commit, PR, and deployment are pending.
+**Status:** the introduction page, database foundation, and link-creation API are
+implemented. Redirect handling and the shortening interface are planned next.
+Analytics, QR codes, and public-launch abuse controls are later milestones.
 
-**Live demo:** pending deployment. Shortening, redirects, QR codes, and analytics
-will be implemented in later phases.
+**Live demo:** pending deployment.
 
-## 1. Goal
+## Run locally
 
-Establish tested persistence before adding URL-shortening endpoints. Stop after
-Phase 1 for verification; public creation and redirects are not implemented.
-
-## 2. Architecture
-
-- One Next.js 16 App Router application with React and strict TypeScript.
-- Tailwind CSS 4 with system fonts; no font downloads or external APIs at build time.
-- Node.js 24.x in `.nvmrc`, package engines, CI, and the deployment instructions.
-- ESLint for code checks, Prettier for formatting, Vitest for component tests,
-  and Playwright for production browser tests.
-- PostgreSQL 17 and Prisma 7.10.1 with the `pg` adapter, a small connection pool,
-  and lazy server-only access through `getDb()`.
-- Separate application, migration, and test URLs. Client generation is automatic;
-  applying migrations is an explicit command.
-
-See [architecture](docs/architecture.md), [API status](docs/api.md),
-[dependency licenses](docs/dependencies.md), and
-[hosting limits and deployment](docs/deployment.md).
-
-## 3. Implementation and local setup
-
-Prerequisites: Git, Node.js **24.x**, and its bundled npm. If you use `nvm`:
-
-```bash
-nvm install
-nvm use
-node --version
-```
-
-The expected Node major is 24.
-
-Install the locked dependencies and the browser used by the tests:
+Use Node.js **24.x** and npm. PostgreSQL **17** is used in development and CI.
+With nvm installed, `nvm install` and `nvm use` select the project runtime.
 
 ```bash
 npm ci
-npx playwright install chromium
+```
+
+Installation generates Prisma Client. The introduction page and production build
+work without database credentials. To use the creation API, create `.env.local`
+from `.env.example` if that file does not already exist.
+
+With Docker Engine and Compose available:
+
+```bash
+docker compose up -d --wait
+docker compose exec postgres createdb -U shortlink shortlink_test
+npm run db:deploy
 npm run dev
 ```
 
-Open <http://localhost:3000>. On Linux, if Playwright reports missing system
-libraries, follow its instructions or run `npx playwright install --with-deps chromium`.
-Stop the development server with Ctrl+C when finished.
+Create `shortlink_test` once per new local volume; skip `createdb` if it already
+exists. Open <http://localhost:3000>. The local credentials in `.env.example`
+match Compose and must not be used for hosted databases.
 
-**Keep `package-lock.json` committed with dependency changes.** Use `npm ci` on
-fresh checkouts and in CI. Use `npm install` when deliberately changing
-dependencies, and review the resulting lockfile changes.
+Compose binds PostgreSQL to localhost:5432 and preserves data in a named volume.
+`docker compose down` stops it without deleting that volume. An existing local
+PostgreSQL installation also works: create separate development and test databases
+and update the connection URLs.
 
-The introduction page and builds require no environment file. For database work,
-copy `.env.example` to `.env.local` and follow the [database guide](docs/database.md).
-It covers Docker Compose and existing local PostgreSQL installations. Integration
-tests require a separate local database whose name ends in `_test`. Real
-credentials stay out of Git.
+### Environment variables
 
-```text
-src/app/                 Layout, introduction page, styles, component test
-src/lib/                 Server-only database access and configuration checks
-prisma/                  Schema and versioned SQL migrations
-tests/integration/       PostgreSQL persistence and transaction tests
-tests/unit/              Test-database isolation checks
-tests/setup.ts           Shared DOM test setup
-tests/e2e/               Browser tests
-.github/workflows/ci.yml GitHub Actions checks
-docs/                    Architecture, API, dependencies, deployment, Git guide
+| Variable            | Used by                                | Value                                                   |
+| ------------------- | -------------------------------------- | ------------------------------------------------------- |
+| `DATABASE_URL`      | Application queries                    | Application PostgreSQL connection; pooled on Neon       |
+| `DIRECT_URL`        | Migration commands                     | Direct connection to the intended database              |
+| `TEST_DATABASE_URL` | Integration tests and their migrations | Local PostgreSQL database with a name ending in `_test` |
+
+Never commit actual credentials or expose them through `NEXT_PUBLIC_` variables.
+Next.js loads its environment files; Prisma and the integration runner load
+`.env.local`, then `.env`, while preserving existing environment variables.
+
+## API
+
+### POST /api/links
+
+Create a link record from one absolute HTTP(S) destination:
+
+```bash
+curl -i http://localhost:3000/api/links \
+  -H 'Content-Type: application/json' \
+  --data '{"url":"https://example.com/article?source=portfolio#details"}'
 ```
 
-## 4. Verification
+Example `201 Created` response:
 
-After installation (use `npm run format` when formatting changes are needed):
+```json
+{
+  "data": {
+    "id": "94d1b2e4-61ac-42f1-8b59-c94aad7e819a",
+    "code": "Ab12_cd3",
+    "destinationUrl": "https://example.com/article?source=portfolio#details",
+    "createdAt": "2026-01-01T12:00:00.000Z"
+  }
+}
+```
+
+Only the `url` field is accepted. Leading and trailing whitespace is trimmed;
+the destination is normalized through the URL parser. Queries and fragments are
+preserved. Raw whitespace, control characters, backslashes, credentials, and
+non-HTTP(S) schemes are rejected. Both the trimmed input and normalized URL are limited
+to 2,048 characters, and the UTF-8 JSON request body is limited to 8 KiB.
+
+Codes contain eight URL-safe characters generated from 48 cryptographically
+random bits. The database unique index handles concurrent collisions, with at
+most five insertion attempts. Each valid POST creates an independent record.
+The backend stores destinations without fetching them.
+
+The response currently supplies the code and destination; redirect routing is
+a subsequent milestone.
+
+| Status | Meaning                                           |
+| ------ | ------------------------------------------------- |
+| `201`  | Link created                                      |
+| `400`  | Invalid JSON, request shape, or destination       |
+| `413`  | Request body exceeds 8 KiB                        |
+| `415`  | Content type is not `application/json`            |
+| `503`  | Database access or code allocation is unavailable |
+| `405`  | Unsupported HTTP method                           |
+
+Errors use this shape:
+
+```json
+{
+  "error": {
+    "code": "INVALID_URL",
+    "message": "url must be a valid HTTP or HTTPS URL."
+  }
+}
+```
+
+POST responses use `Cache-Control: no-store`. Database details are not returned to
+clients or included in application error logs. Request throttling and abuse
+controls remain prerequisites for a public anonymous-writing launch.
+
+## Architecture and schema
+
+One Next.js App Router application owns pages and backend routes. The Node.js
+route validates input before calling the creation service. That service inserts
+through Prisma, retrying only unique-index collisions on the short code.
+
+| Link field       | PostgreSQL type          | Behavior                                                        |
+| ---------------- | ------------------------ | --------------------------------------------------------------- |
+| `id`             | UUID                     | Primary key, generated by Prisma                                |
+| `code`           | Varchar(32)              | Unique lookup key; current generated codes are eight characters |
+| `destinationUrl` | Text                     | Normalized destination                                          |
+| `createdAt`      | Timestamp with time zone | Database creation-time default                                  |
+
+`src/lib/db.ts` is server-only and creates its client lazily. The client is
+reused per process, including development hot reloads, with a pool of two
+connections and 10-second connection and idle timeouts. Each serverless instance
+has its own pool.
+
+```text
+src/app/                 Pages, metadata, styles, and API routes
+src/lib/http/            Bounded JSON request handling
+src/lib/links/           Validation and collision-safe creation
+src/lib/db.ts            Server-only PostgreSQL client
+prisma/                  Schema and committed SQL migrations
+tests/integration/       PostgreSQL-backed behavior checks
+tests/e2e/               Production HTTP and browser checks
+.github/workflows/       Application and PostgreSQL CI jobs
+```
+
+### Database changes
+
+Apply committed migrations with `npm run db:deploy`; inspect their state with
+`npm run db:status`. For local schema development:
+
+```bash
+npm run db:format
+npm run db:migrate -- --name describe_the_change
+npm run db:generate
+```
+
+Review generated SQL before committing. `migrate dev` needs a disposable shadow
+database and is for local development. If Prisma proposes resetting a database
+with data, inspect the drift before proceeding.
+
+Client generation runs during installation, type checking, and production
+builds. These commands never apply migrations. Prisma CLI, Client, and the
+PostgreSQL adapter are pinned to 7.10.1; use the project's npm scripts.
+
+## Verification
 
 ```bash
 npm run format:check
 npm run lint
+npm run db:validate
 npm run typecheck
 npm test
 npm run build
+npx playwright install chromium
 npm run test:e2e
-```
-
-Playwright starts `next start` against the production build, checks the title and
-keyboard skip link, and checks that the page fits a mobile viewport. The Vitest
-test checks the introductory heading and the visible availability status. Use
-`npm run test:watch` while developing.
-
-The separate database suite requires a configured local test database:
-
-```bash
-npm run db:validate
 npm run test:integration
 ```
 
-It applies the committed migration to that database, then tests persistence,
-lookup, uniqueness, and rollback. See [database verification](docs/database.md#verification-and-isolation).
+The integration suite requires the dedicated local test database. It applies
+committed migrations, then verifies persistence, rollback, real unique-index
+collisions, concurrent creation, and the API response. It removes only its own
+records. It never falls back to application or production credentials.
 
-Verified locally on **2026-10-27** with **Node.js 24.22.1** and **PostgreSQL 17.10**:
-clean install and client generation, formatting, lint, schema validation, strict
-TypeScript, 14 unit/component tests, 4 database integration tests, production
-build, and 2 Chromium browser tests. No hosted database was created.
+Playwright starts the production build and checks keyboard navigation, mobile
+layout, and API routing. On Linux, its browser dependencies may require
+`npx playwright install --with-deps chromium`.
 
-For an additional manual check, view the page at desktop and mobile widths and
-use Tab then Enter to follow **Skip to content**. Look for browser errors and
-horizontal scrolling. The keyboard and mobile overflow checks are automated;
-a separate visual review has not been performed.
+CI runs application checks without database URLs and integration tests against
+a disposable PostgreSQL 17 service. It uses standard Ubuntu runners, read-only
+repository permissions, and no hosted database secrets or uploaded artifacts.
 
-CI runs application checks without database URLs and a separate integration job
-with a disposable PostgreSQL service. Both use standard Ubuntu runners and
-read-only repository permissions, without hosted database secrets or uploaded
-artifacts. Phase 0's remote CI passed; Phase 1 needs a new PR run.
+## Deployment and cost
 
-## 5. Documentation
+The project targets a personal, noncommercial deployment on
+[Vercel Hobby](https://vercel.com/docs/plans/hobby), a free `.vercel.app` domain,
+and [Neon Free](https://neon.com/pricing). No paid API, trial, purchased domain,
+or required subscription is used.
 
-The [database guide](docs/database.md) explains the schema, connections, local
-setup, migrations, and test isolation.
-
-| Guide                                | Contents                                                                 |
-| ------------------------------------ | ------------------------------------------------------------------------ |
-| [Architecture](docs/architecture.md) | Application boundaries, tooling, future database decisions               |
-| [API](docs/api.md)                   | Current endpoint status and tentative future routes                      |
-| [Dependencies](docs/dependencies.md) | Package purposes, open-source licenses, planned additions                |
-| [Deployment](docs/deployment.md)     | Verified free-tier limits, Vercel setup, environment isolation, rollback |
-| [Git workflow](docs/git-workflow.md) | First push, feature branches, pull requests, switching computers         |
-
-All required hosting must stay at **€0**. A personal, noncommercial portfolio fits
-[Vercel Hobby's terms](https://vercel.com/docs/plans/hobby); the planned database
-uses [Neon Free](https://neon.com/pricing). Standard GitHub-hosted runners are
+Neon Free currently includes 100 CU-hours per month and 1 GB storage per project,
+with compute sleeping after five inactive minutes. Vercel Hobby has bounded
+compute and transfer allowances; consult its linked plan before deployment.
+Standard GitHub-hosted runners are
 [free for public repositories](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
-Plan allowances checked on 2026-10-26 are documented in the deployment guide.
-No paid API, trial, purchased domain, or background worker is required.
+Provider plans were rechecked on 2026-10-28. Stay within free allowances rather
+than enabling billable upgrades.
 
-## 6. Git checkpoint
+Import the GitHub repository into Vercel, select Next.js and Node 24, and use
+`npm ci --include=dev` followed by `npm run build`. Set `main` as the production
+branch; feature branches and PRs receive previews. A Vercel deployment and GitHub
+CI run independently, so check both before merging.
 
-Current branch: **`feat/database-foundation`**, based on the pushed Phase 0 commit
-`8c53ff4` on `main`. The repository is <https://github.com/yassir-chouika/ShortLink>.
-No Phase 1 commit or push has been made.
+Before deploying database-backed requests, provision isolated production and
+preview databases and configure their scoped `DATABASE_URL` values. Preserve
+Neon's TLS options. Apply reviewed migrations explicitly using `DIRECT_URL`
+for the intended environment; never run production migrations in a normal build
+or against a preview's production connection. Keep test credentials local to CI.
 
-After local checks pass, review the schema, migration, client, tests, CI,
-environment example, lockfile, and docs as one milestone. Follow the
-[Phase 1 checkpoint](docs/git-workflow.md#phase-1-checkpoint). Proposed commit:
+Verify the deployed commit, HTTPS page, and API behavior before publishing a live
+demo URL. To roll back application code, redeploy a previous verified commit
+through Vercel. Application rollback does not undo database migrations; preserve
+schema compatibility or use a reviewed forward fix.
 
-```text
-feat: add PostgreSQL and Prisma database foundation
-```
+## Dependency licenses
 
-Push this branch and open a PR into `main`; opening the PR triggers CI. If Vercel
-is connected, the feature push creates a preview and merging into `main` triggers
-production. Review both CI jobs and any preview before merging. Do not tag
-`v1.0.0` before a complete, verified production deployment.
+Exact versions and transitive package metadata are recorded in
+`package-lock.json`. Dependency notices are included with installed packages.
 
-## 7. Next milestone
+| Dependencies                                                 | License                                    |
+| ------------------------------------------------------------ | ------------------------------------------ |
+| Node.js, Next.js, React, Tailwind CSS, PostCSS               | MIT, with bundled notices where applicable |
+| ESLint, Prettier, Vitest, Testing Library, jsdom             | MIT                                        |
+| `pg`, `server-only`, `@types/*`                              | MIT                                        |
+| TypeScript, Prisma CLI/Client/PostgreSQL adapter, Playwright | Apache-2.0                                 |
+| `dotenv`                                                     | BSD-2-Clause                               |
+| PostgreSQL server                                            | PostgreSQL License                         |
 
-After Phase 1 is verified: implement the first validated link-creation endpoint,
-short-code generation, collision handling, and API documentation. Redirects,
-analytics, and QR codes remain later work.
+Browser distributions and container images retain their own bundled notices.
+Hosted services are governed by their service terms and free-tier limits.
+ESLint 9 currently matches the installed Next.js lint plugins' peer requirements;
+its support warning is recorded for a coordinated tooling upgrade.
