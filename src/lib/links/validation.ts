@@ -17,11 +17,16 @@ export function validateLinkInput(input: unknown): string {
     );
   }
 
-  if (typeof input.url !== 'string') {
+  return validateDestinationUrl(input.url);
+}
+
+/** Normalize a destination for storage or a redirect's Location header. */
+export function validateDestinationUrl(input: unknown): string {
+  if (typeof input !== 'string') {
     throw new LinkValidationError('INVALID_URL', 'url must be a string.');
   }
 
-  const value = input.url.trim();
+  const value = input.trim();
   if (!value || value.length > MAX_DESTINATION_LENGTH) {
     throw new LinkValidationError(
       'INVALID_URL',

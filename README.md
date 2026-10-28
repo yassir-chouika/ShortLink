@@ -3,8 +3,8 @@
 A lightweight URL shortener built with Next.js, strict TypeScript, PostgreSQL,
 Prisma, and Tailwind CSS.
 
-**Status:** the introduction page, database foundation, and link-creation API are
-implemented. Redirect handling and the shortening interface are planned next.
+**Status:** the introduction page, database foundation, link-creation API, and
+short-code redirects are implemented. The shortening interface is planned next.
 Analytics, QR codes, and public-launch abuse controls are later milestones.
 
 **Live demo:** pending deployment.
@@ -88,8 +88,8 @@ random bits. The database unique index handles concurrent collisions, with at
 most five insertion attempts. Each valid POST creates an independent record.
 The backend stores destinations without fetching them.
 
-The response currently supplies the code and destination; redirect routing is
-a subsequent milestone.
+Open the returned code as a path on this application, such as
+`http://localhost:3000/Ab12_cd3`, to follow its saved destination.
 
 | Status | Meaning                                           |
 | ------ | ------------------------------------------------- |
@@ -115,11 +115,36 @@ POST responses use `Cache-Control: no-store`. Database details are not returned 
 clients or included in application error logs. Request throttling and abuse
 controls remain prerequisites for a public anonymous-writing launch.
 
+### GET /:code and HEAD /:code
+
+Resolve an eight-character, case-sensitive short code:
+
+```bash
+curl -I http://localhost:3000/Ab12_cd3
+```
+
+Replace `Ab12_cd3` with the code returned by your creation request.
+
+A saved link returns `302 Found` with its normalized HTTP(S) destination in
+`Location`. The saved query string and fragment are preserved; extra query
+parameters on the short URL are ignored. Redirects use `Cache-Control: no-store`
+and `Referrer-Policy: no-referrer`. The backend revalidates the stored destination
+before using it as a redirect header and does not fetch it.
+
+`HEAD` returns the same status and headers without a body. Invalid or unknown
+codes return `404` with error code `LINK_NOT_FOUND`. A failed lookup or unsafe
+stored destination returns `503` with `LINK_UNAVAILABLE`, without a redirect or
+private exception details. Error responses also use `no-store`. Other methods
+receive `405`. Click tracking is not implemented yet.
+
 ## Architecture and schema
 
 One Next.js App Router application owns pages and backend routes. The Node.js
 route validates input before calling the creation service. That service inserts
 through Prisma, retrying only unique-index collisions on the short code.
+The redirect service looks up only the destination through the code's unique
+index. Malformed codes are rejected before querying PostgreSQL. Dynamic routing
+and explicit cache headers ensure each valid visit resolves the current record.
 
 | Link field       | PostgreSQL type          | Behavior                                                        |
 | ---------------- | ------------------------ | --------------------------------------------------------------- |
@@ -175,12 +200,20 @@ npm run build
 npx playwright install chromium
 npm run test:e2e
 npm run test:integration
+npm run test:e2e:database
 ```
 
-The integration suite requires the dedicated local test database. It applies
-committed migrations, then verifies persistence, rollback, real unique-index
-collisions, concurrent creation, and the API response. It removes only its own
-records. It never falls back to application or production credentials.
+Both database suites require the dedicated local test database. They apply
+committed migrations and verify persistence, rollback, real unique-index
+collisions, concurrent creation, redirects, and API responses. They remove only
+their own records and never fall back to application or production credentials.
+
+The database browser suite starts the production server with its application
+connection explicitly overridden by the guarded test URL. It verifies creation,
+redirect headers, browser navigation, referrer suppression, HEAD, deleted links,
+and unsafe stored data. Destination pages are served by a local test fixture, so no
+external website is required. Run `npm run build` before either browser suite.
+Stop any development server using port 3000 before running the browser suites.
 
 Playwright starts the production build and checks keyboard navigation, mobile
 layout, and API routing. On Linux, its browser dependencies may require
@@ -189,6 +222,7 @@ layout, and API routing. On Linux, its browser dependencies may require
 CI runs application checks without database URLs and integration tests against
 a disposable PostgreSQL 17 service. It uses standard Ubuntu runners, read-only
 repository permissions, and no hosted database secrets or uploaded artifacts.
+The PostgreSQL job also builds the app and runs the database-backed browser suite.
 
 ## Deployment and cost
 
