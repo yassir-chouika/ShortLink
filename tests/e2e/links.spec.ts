@@ -27,3 +27,14 @@ test('the creation endpoint does not expose a GET collection', async ({
   const response = await request.get('/api/links');
   expect(response.status()).toBe(405);
 });
+
+test('configured blocked destinations are rejected before database access', async ({
+  request,
+}) => {
+  const response = await request.post('/api/links', {
+    data: { url: 'https://sub.blocked.example/path' },
+  });
+  expect(response.status()).toBe(403);
+  expect((await response.json()).error.code).toBe('DESTINATION_BLOCKED');
+  expect(response.headers()['cache-control']).toBe('no-store');
+});

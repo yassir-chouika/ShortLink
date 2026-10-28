@@ -1,5 +1,28 @@
 import { expect, test } from '@playwright/test';
 
+test('rate limiting explains the retry interval and preserves the URL', async ({
+  page,
+}) => {
+  await page.route('**/api/links', (route) =>
+    route.fulfill({
+      status: 429,
+      headers: { 'Retry-After': '90' },
+      json: { error: { code: 'RATE_LIMITED' } },
+    }),
+  );
+  await page.goto('/');
+  await page
+    .getByRole('textbox', { name: 'Your long link' })
+    .fill('https://example.com');
+  await page.getByRole('button', { name: 'Shorten link' }).click();
+  await expect(page.getByRole('form').getByRole('alert')).toContainText(
+    'about 2 minutes',
+  );
+  await expect(
+    page.getByRole('textbox', { name: 'Your long link' }),
+  ).toHaveValue('https://example.com');
+});
+
 test('keyboard submission announces validation and focuses the invalid input', async ({
   page,
 }) => {

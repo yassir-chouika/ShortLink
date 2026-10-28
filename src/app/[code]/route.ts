@@ -1,5 +1,6 @@
 import { jsonError, NO_STORE_HEADERS } from '@/lib/http/responses';
 import { resolveLink } from '@/lib/links/resolve-link';
+import { DestinationBlockedError } from '@/lib/links/policy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,13 @@ async function resolveRedirect(
       },
     });
   } catch (error) {
+    if (error instanceof DestinationBlockedError) {
+      return jsonError(
+        403,
+        'DESTINATION_BLOCKED',
+        'This short link is not available.',
+      );
+    }
     // Stored URLs and database exception messages can contain private details.
     console.error('Short-link resolution failed.', {
       type: error instanceof Error ? error.name : 'UnknownError',

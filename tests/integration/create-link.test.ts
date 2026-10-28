@@ -15,12 +15,19 @@ let db: ReturnType<typeof getDb>;
 
 beforeAll(() => {
   vi.stubEnv('DATABASE_URL', getTestDatabaseUrl());
+  vi.stubEnv('VERCEL', '');
+  vi.stubEnv('LINK_CREATION_ENABLED', 'true');
+  vi.stubEnv('BLOCKED_LINK_HOSTS', '');
+  vi.stubEnv('RATE_LIMIT_SCOPE', `api_${runId}`);
   db = getDb();
 });
 
 afterAll(async () => {
   try {
     if (db) {
+      await db.rateLimitBucket.deleteMany({
+        where: { key: { startsWith: `api\\_${runId}:` } },
+      });
       await db.link.deleteMany({
         where: { destinationUrl: { startsWith: destinationPrefix } },
       });

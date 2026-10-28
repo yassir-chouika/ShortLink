@@ -18,5 +18,10 @@ export default defineConfig({
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: false,
     timeout: 60_000,
+    env: {
+      VERCEL: '',
+      LINK_CREATION_ENABLED: 'true',
+      BLOCKED_LINK_HOSTS: 'blocked.example',
+    },
   },
 });

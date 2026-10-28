@@ -2,9 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveLink } from '@/lib/links/resolve-link';
 import { LinkValidationError } from '@/lib/links/errors';
+import { DestinationBlockedError } from '@/lib/links/policy';
 import { GET, HEAD } from './route';
 
 vi.mock('@/lib/links/resolve-link', () => ({ resolveLink: vi.fn() }));
+vi.mock('server-only', () => ({}));
 
 const destination = 'https://example.com/article?saved=1#details';
 const context = { params: Promise.resolve({ code: 'Ab12_cd3' }) };
@@ -20,6 +22,15 @@ afterEach(() => {
 });
 
 describe('short-code redirect route', () => {
+  it('returns 403 without a redirect or private destination for a blocked host', async () => {
+    vi.mocked(resolveLink).mockRejectedValue(new DestinationBlockedError());
+    const response = await GET(request, context);
+    expect(response.status).toBe(403);
+    expect(response.headers.get('location')).toBeNull();
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect((await response.json()).error.code).toBe('DESTINATION_BLOCKED');
+    expect(console.error).not.toHaveBeenCalled();
+  });
   it('returns a temporary uncached redirect to the saved URL', async () => {
     const response = await GET(request, context);
 
@@ -60,10 +71,12 @@ describe('short-code redirect route', () => {
     },
   );
 
-  it.each([302, 404, 503])(
+  it.each([302, 403, 404, 503])(
     'HEAD preserves status and headers with no body',
     async (status) => {
       if (status === 404) vi.mocked(resolveLink).mockResolvedValue(null);
+      if (status === 403)
+        vi.mocked(resolveLink).mockRejectedValue(new DestinationBlockedError());
       if (status === 503)
         vi.mocked(resolveLink).mockRejectedValue(new Error('Unavailable'));
       const response = await HEAD(
