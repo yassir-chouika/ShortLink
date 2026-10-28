@@ -4,7 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Shrtnr. | Short links, simply',
   description:
-    'A simpler way to shorten, share, and understand your links. Coming soon.',
+    'Make long links a little easier to share. Shorten a URL, copy your link, and pass it along with Shrtnr.',
 };
 
 export default function RootLayout({

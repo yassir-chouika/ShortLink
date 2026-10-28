@@ -118,6 +118,50 @@ test('HEAD returns the redirect headers without a body', async ({
   expect(await response.text()).toBe('');
 });
 
+test('the form creates, copies, and opens a persisted short link', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: 'http://127.0.0.1:3000',
+  });
+  const destination = `${destinationOrigin}/${runId}/browser?from=form#details`;
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'Your long link' }).fill(destination);
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/links') &&
+      response.request().method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Shorten link' }).click();
+  const response = await created;
+  expect(response.status()).toBe(201);
+  const { data } = await response.json();
+  ids.push(data.id);
+  const shortUrl = `http://127.0.0.1:3000/${data.code}`;
+  await expect(
+    page.getByRole('textbox', { name: 'Your short link' }),
+  ).toHaveValue(shortUrl);
+  expect(
+    (await db.link.findUniqueOrThrow({ where: { id: data.id } }))
+      .destinationUrl,
+  ).toBe(destination);
+  await page.getByRole('button', { name: 'Copy link' }).click();
+  await expect(page.getByRole('button', { name: 'Copied!' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    shortUrl,
+  );
+  const opened = page.waitForEvent('popup');
+  await page.getByRole('link', { name: /Open link/ }).click();
+  const popup = await opened;
+  await expect(popup).toHaveURL(destination);
+  await expect(
+    popup.getByRole('heading', { name: 'Saved destination' }),
+  ).toBeVisible();
+  expect(destinationReferrer).toBeUndefined();
+  await popup.close();
+});
+
 test('a deleted link returns 404 rather than a cached redirect', async ({
   request,
 }) => {
