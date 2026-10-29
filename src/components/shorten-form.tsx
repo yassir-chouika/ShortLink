@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { LinkQrCode } from './link-qr-code';
 import {
   MAX_DESTINATION_LENGTH,
   validateDestinationUrl,
@@ -131,6 +132,7 @@ function LinkResult({ shortUrl, destinationUrl }: CreatedLink) {
           <span aria-hidden="true">↗</span>
         </a>
       </div>
+      <LinkQrCode shortUrl={shortUrl} />
     </section>
   );
 }

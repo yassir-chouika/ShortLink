@@ -5,7 +5,8 @@ Prisma, and Tailwind CSS.
 
 **Status:** the responsive shortening form, copyable results, database foundation,
 link-creation API, short-code redirects, shared creation limits, and operator
-abuse controls are implemented. Analytics and QR codes are later milestones.
+abuse controls, and downloadable QR codes are implemented. Analytics is a later
+milestone.
 
 **Live demo:** pending deployment.
 
@@ -58,6 +59,25 @@ context and can be denied; when unavailable, the link is selected for manual
 copying. See the [Clipboard API documentation](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText).
 JavaScript is required for the form. Created links are stored in PostgreSQL;
 the interface keeps no browser history or local-storage copy of your URLs.
+
+### Share a QR code
+
+After shortening a link, select **Show QR code**, then **Download QR code (PNG)**.
+The preview and 512 × 512 PNG encode the full short URL on the current origin,
+not the original destination. Files are named `shrtnr-<code>.png`. The encoder
+loads only when requested and runs in your browser: no external QR API, image
+upload, new link record, or extra database request is needed.
+
+The code uses black modules, a white four-module quiet zone, and medium error
+correction. Keep the white border when printing or placing the image. See the
+[QR generator's documentation](https://github.com/soldair/node-qrcode).
+If generation fails, you can retry it while continuing to copy or open the link.
+Editing the destination clears the result and its QR code.
+
+A QR code still needs a reachable app URL and a working destination. A phone
+scanning a `localhost` or `127.0.0.1` link points at the phone itself; use the
+verified deployed URL when sharing across devices. Blocking or deleting a saved
+link also affects QR codes that lead to it.
 
 ### Environment variables
 
@@ -294,7 +314,9 @@ redirect headers, browser navigation, referrer suppression, HEAD, deleted links,
 and unsafe stored data. It also creates a link through the actual form, verifies
 the saved database record, reads the copied URL, and opens the destination.
 It also checks blocked stored destinations and verifies forged forwarded headers
-cannot bypass the local quota. Counter namespaces are unique per test run.
+cannot bypass the local quota. Counter namespaces are unique per test run. QR tests decode both the rendered
+preview and downloaded PNG with an independent reader, verify the exact short
+URL and local-only requests, and resolve a real saved link from decoded pixels.
 Destination pages are served by a local test fixture, so no
 external website is required. Run `npm run build` before either browser suite.
 Stop any development server using port 3000 before running the browser suites.
@@ -344,17 +366,21 @@ schema compatibility or use a reviewed forward fix.
 
 ## Dependency licenses
 
+`qrcode` 1.5.4 provides browser-side generation; `@types/qrcode` 1.5.6 provides
+development types. The test-only `jsqr` 1.4.0 decoder checks the displayed and
+downloaded images independently and is not imported by application code.
+
 Exact versions and transitive package metadata are recorded in
 `package-lock.json`. Dependency notices are included with installed packages.
 
-| Dependencies                                                 | License                                    |
-| ------------------------------------------------------------ | ------------------------------------------ |
-| Node.js, Next.js, React, Tailwind CSS, PostCSS               | MIT, with bundled notices where applicable |
-| ESLint, Prettier, Vitest, Testing Library, jsdom             | MIT                                        |
-| `pg`, `server-only`, `@types/*`                              | MIT                                        |
-| TypeScript, Prisma CLI/Client/PostgreSQL adapter, Playwright | Apache-2.0                                 |
-| `dotenv`                                                     | BSD-2-Clause                               |
-| PostgreSQL server                                            | PostgreSQL License                         |
+| Dependencies                                                         | License                                    |
+| -------------------------------------------------------------------- | ------------------------------------------ |
+| Node.js, Next.js, React, Tailwind CSS, PostCSS                       | MIT, with bundled notices where applicable |
+| ESLint, Prettier, Vitest, Testing Library, jsdom                     | MIT                                        |
+| `pg`, `server-only`, `qrcode`, `@types/*`                            | MIT                                        |
+| TypeScript, Prisma CLI/Client/PostgreSQL adapter, Playwright, `jsqr` | Apache-2.0                                 |
+| `dotenv`                                                             | BSD-2-Clause                               |
+| PostgreSQL server                                                    | PostgreSQL License                         |
 
 Browser distributions and container images retain their own bundled notices.
 Hosted services are governed by their service terms and free-tier limits.

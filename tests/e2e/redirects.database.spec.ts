@@ -4,6 +4,7 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../../src/generated/prisma/client';
 import { getTestDatabaseUrl } from '../helpers/test-database-url';
+import { decodeQrPng } from '../helpers/decode-qr';
 
 const db = new PrismaClient({
   adapter: new PrismaPg({ connectionString: getTestDatabaseUrl(), max: 1 }),
@@ -157,6 +158,18 @@ test('the form creates, copies, and opens a persisted short link', async ({
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     shortUrl,
   );
+  await page.getByRole('button', { name: 'Show QR code' }).click();
+  const qr = page.getByRole('img', { name: 'QR code for your short link' });
+  await expect(qr).toBeVisible();
+  const qrSource = await qr.getAttribute('src');
+  const decoded = await decodeQrPng(
+    page,
+    Array.from(Buffer.from(qrSource!.split(',')[1], 'base64')),
+  );
+  expect(decoded).toBe(shortUrl);
+  const resolved = await page.request.get(decoded!, { maxRedirects: 0 });
+  expect(resolved.status()).toBe(302);
+  expect(resolved.headers().location).toBe(destination);
   const opened = page.waitForEvent('popup');
   await page.getByRole('link', { name: /Open link/ }).click();
   const popup = await opened;
