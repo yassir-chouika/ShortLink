@@ -3,8 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLink } from '@/lib/links/create-link';
 import { CodeAllocationError } from '@/lib/links/errors';
 import { POST } from './route';
+import {
+  reserveCreationQuota,
+  CreationRateLimitError,
+} from '@/lib/security/creation-quota';
 
 vi.mock('@/lib/links/create-link', () => ({ createLink: vi.fn() }));
+vi.mock('@/lib/security/creation-quota', () => ({
+  reserveCreationQuota: vi.fn(),
+  CreationRateLimitError: class CreationRateLimitError extends Error {
+    constructor(public retryAfter: number) {
+      super('Link creation limit reached. Please try again later.');
+    }
+  },
+}));
+vi.mock('server-only', () => ({}));
 
 const endpoint = 'http://localhost/api/links';
 const record = {
@@ -23,10 +36,15 @@ function jsonRequest(payload: unknown): Request {
 }
 
 beforeEach(() => {
+  vi.stubEnv('VERCEL', '');
+  vi.stubEnv('LINK_CREATION_ENABLED', 'true');
+  vi.stubEnv('BLOCKED_LINK_HOSTS', '');
+  vi.mocked(reserveCreationQuota).mockResolvedValue(undefined);
   vi.mocked(createLink).mockResolvedValue(record);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.resetAllMocks();
   vi.restoreAllMocks();
 });
@@ -44,6 +62,7 @@ describe('POST /api/links', () => {
       data: { ...record, createdAt: record.createdAt.toISOString() },
     });
     expect(createLink).toHaveBeenCalledExactlyOnceWith('https://example.com/');
+    expect(reserveCreationQuota).toHaveBeenCalledExactlyOnceWith('local');
   });
 
   it.each([
@@ -58,6 +77,7 @@ describe('POST /api/links', () => {
     expect(response.status).toBe(400);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(createLink).not.toHaveBeenCalled();
+    expect(reserveCreationQuota).not.toHaveBeenCalled();
   });
 
   it.each(['', '{broken-json'])(
@@ -185,5 +205,58 @@ describe('POST /api/links', () => {
       'Link creation failed.',
       { type: 'Error' },
     );
+  });
+
+  it('rejects paused creation before reading the body or reserving quota', async () => {
+    vi.stubEnv('LINK_CREATION_ENABLED', 'false');
+    const response = await POST(
+      new Request(endpoint, { method: 'POST', body: 'not json' }),
+    );
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe('LINK_CREATION_PAUSED');
+    expect(reserveCreationQuota).not.toHaveBeenCalled();
+    expect(createLink).not.toHaveBeenCalled();
+  });
+
+  it('blocks configured destinations before quota or persistence', async () => {
+    vi.stubEnv('BLOCKED_LINK_HOSTS', 'example.com');
+    const response = await POST(
+      jsonRequest({ url: 'https://sub.example.com/path' }),
+    );
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('DESTINATION_BLOCKED');
+    expect(reserveCreationQuota).not.toHaveBeenCalled();
+    expect(createLink).not.toHaveBeenCalled();
+  });
+
+  it('returns 429 with a retry interval without creating a link', async () => {
+    vi.mocked(reserveCreationQuota).mockRejectedValue(
+      new CreationRateLimitError(42),
+    );
+    const response = await POST(jsonRequest({ url: 'https://example.com' }));
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('42');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect((await response.json()).error.code).toBe('RATE_LIMITED');
+    expect(createLink).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when quota storage is unavailable', async () => {
+    vi.mocked(reserveCreationQuota).mockRejectedValue(
+      new Error('private quota database secret'),
+    );
+    const response = await POST(jsonRequest({ url: 'https://example.com' }));
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain('secret');
+    expect(createLink).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on Vercel without a trusted client identity', async () => {
+    vi.stubEnv('VERCEL', '1');
+    vi.stubEnv('RATE_LIMIT_SECRET', 'x'.repeat(64));
+    const response = await POST(jsonRequest({ url: 'https://example.com' }));
+    expect(response.status).toBe(503);
+    expect(reserveCreationQuota).not.toHaveBeenCalled();
+    expect(createLink).not.toHaveBeenCalled();
   });
 });

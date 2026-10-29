@@ -60,6 +60,12 @@ async function createViaApi(
 test.afterAll(async () => {
   try {
     await db.link.deleteMany({ where: { id: { in: ids } } });
+    const scope = process.env.RATE_LIMIT_SCOPE;
+    if (!scope?.startsWith('e2e_'))
+      throw new Error('Missing isolated browser quota scope.');
+    await db.rateLimitBucket.deleteMany({
+      where: { key: { startsWith: `${scope.replaceAll('_', '\\_')}:` } },
+    });
   } finally {
     const closeDestination = destinationServer.listening
       ? new Promise<void>((resolve, reject) => {
@@ -193,4 +199,59 @@ test('unsafe stored destinations cannot become redirect headers', async ({
   expect(response.status()).toBe(503);
   expect(response.headers().location).toBeUndefined();
   expect(await response.text()).not.toContain(link.destinationUrl);
+});
+
+test('an existing link to a blocked host cannot redirect through GET or HEAD', async ({
+  request,
+}) => {
+  const link = await db.link.create({
+    data: {
+      code: randomBytes(6).toString('base64url'),
+      destinationUrl: 'https://sub.blocked.example/path',
+    },
+  });
+  ids.push(link.id);
+  const response = await request.get(`/${link.code}`, { maxRedirects: 0 });
+  expect(response.status()).toBe(403);
+  expect(response.headers().location).toBeUndefined();
+  expect((await response.json()).error.code).toBe('DESTINATION_BLOCKED');
+  const head = await request.head(`/${link.code}`, { maxRedirects: 0 });
+  expect(head.status()).toBe(403);
+  expect(await head.text()).toBe('');
+});
+
+test('forged forwarded headers cannot bypass the local creation limit', async ({
+  request,
+}) => {
+  const scope = process.env.RATE_LIMIT_SCOPE;
+  if (!scope?.startsWith('e2e_'))
+    throw new Error('Missing isolated browser quota scope.');
+  const [{ now }] = await db.$queryRaw<
+    { now: Date }[]
+  >`SELECT CURRENT_TIMESTAMP AS now`;
+  // Seed exhaustion so the assertion is stable across a fixed-window boundary.
+  await db.rateLimitBucket.upsert({
+    where: { key: `${scope}:client:local` },
+    create: {
+      key: `${scope}:client:local`,
+      hits: 10,
+      expiresAt: new Date(now.getTime() + 600_000),
+    },
+    update: { hits: 10, expiresAt: new Date(now.getTime() + 600_000) },
+  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const destinationUrl = `${destinationOrigin}/${runId}/quota-${attempt}`;
+    const response = await request.post('/api/links', {
+      data: { url: destinationUrl },
+      headers: {
+        'x-forwarded-for': `203.0.113.${attempt + 1}`,
+        'x-vercel-forwarded-for': `198.51.100.${attempt + 1}`,
+      },
+    });
+    expect(response.status()).toBe(429);
+    expect((await response.json()).error.code).toBe('RATE_LIMITED');
+    expect(Number(response.headers()['retry-after'])).toBeGreaterThan(0);
+    expect(response.headers()['cache-control']).toBe('no-store');
+    expect(await db.link.count({ where: { destinationUrl } })).toBe(0);
+  }
 });

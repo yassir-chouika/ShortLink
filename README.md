@@ -4,8 +4,8 @@ A lightweight URL shortener built with Next.js, strict TypeScript, PostgreSQL,
 Prisma, and Tailwind CSS.
 
 **Status:** the responsive shortening form, copyable results, database foundation,
-link-creation API, and short-code redirects are implemented.
-Analytics, QR codes, and public-launch abuse controls are later milestones.
+link-creation API, short-code redirects, shared creation limits, and operator
+abuse controls are implemented. Analytics and QR codes are later milestones.
 
 **Live demo:** pending deployment.
 
@@ -61,15 +61,25 @@ the interface keeps no browser history or local-storage copy of your URLs.
 
 ### Environment variables
 
-| Variable            | Used by                                | Value                                                   |
-| ------------------- | -------------------------------------- | ------------------------------------------------------- |
-| `DATABASE_URL`      | Application queries                    | Application PostgreSQL connection; pooled on Neon       |
-| `DIRECT_URL`        | Migration commands                     | Direct connection to the intended database              |
-| `TEST_DATABASE_URL` | Integration tests and their migrations | Local PostgreSQL database with a name ending in `_test` |
+| Variable                | Used by                                | Value                                                                 |
+| ----------------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| `DATABASE_URL`          | Application queries                    | Application PostgreSQL connection; pooled on Neon                     |
+| `DIRECT_URL`            | Migration commands                     | Direct connection to the intended database                            |
+| `TEST_DATABASE_URL`     | Integration tests and their migrations | Local PostgreSQL database with a name ending in `_test`               |
+| `RATE_LIMIT_SECRET`     | Vercel client-address hashing          | Private 32–256-character secret, required on Vercel                   |
+| `LINK_CREATION_ENABLED` | Operator creation switch               | Optional `true` (default) or `false`                                  |
+| `BLOCKED_LINK_HOSTS`    | Creation and redirect policy           | Optional comma-separated hostnames, including their subdomains        |
+| `RATE_LIMIT_SCOPE`      | Shared counter namespace               | Optional; defaults to `creation`. Keep constant within an environment |
 
 Never commit actual credentials or expose them through `NEXT_PUBLIC_` variables.
 Next.js loads its environment files; Prisma and the integration runner load
 `.env.local`, then `.env`, while preserving existing environment variables.
+
+Generate a private `RATE_LIMIT_SECRET` with `openssl rand -hex 32` and store it
+separately in Vercel's Preview and Production environment settings. Never commit
+the generated value. Local development needs no hashing secret. Do not set
+`VERCEL=1` on directly reachable local or self-hosted servers; forwarded headers
+are trusted only on Vercel. Tests select isolated counter namespaces automatically.
 
 ## API
 
@@ -114,8 +124,10 @@ Open the returned code as a path on this application, such as
 | ------ | ------------------------------------------------- |
 | `201`  | Link created                                      |
 | `400`  | Invalid JSON, request shape, or destination       |
+| `403`  | Destination host is blocked by the operator       |
 | `413`  | Request body exceeds 8 KiB                        |
 | `415`  | Content type is not `application/json`            |
+| `429`  | Client or project-wide creation limit reached     |
 | `503`  | Database access or code allocation is unavailable |
 | `405`  | Unsupported HTTP method                           |
 
@@ -131,8 +143,44 @@ Errors use this shape:
 ```
 
 POST responses use `Cache-Control: no-store`. Database details are not returned to
-clients or included in application error logs. Request throttling and abuse
-controls remain prerequisites for a public anonymous-writing launch.
+clients or included in application error logs. Paused creation returns `503` with
+`LINK_CREATION_PAUSED`. Rate-limited requests return `429`, `RATE_LIMITED`, and a
+`Retry-After` interval in seconds; they never create a link.
+
+### Creation limits and operator controls
+
+Validated, permitted creation attempts are limited to **10 per client per fixed
+10-minute window**, with **500 admitted attempts per UTC day per database and
+counter namespace**. PostgreSQL stores the shared counters, so parallel requests
+and separate application instances use the same allowance. Quota is reserved
+before insertion; an admitted attempt still counts if the later insert fails.
+A client rejection rolls back its daily reservation. Invalid input and blocked
+destinations are rejected before quota access. Database or identity errors fail
+closed with `503`. Fixed windows permit bursts across a window boundary.
+
+On Vercel, identity uses the platform's `x-vercel-forwarded-for` address and a
+secret-keyed SHA-256 hash. Raw addresses are neither stored in counter rows nor
+logged by this code. Without Vercel, all callers share one restrictive bucket;
+client-supplied forwarded headers cannot select a different one. Shared IPs share
+an allowance; address changes can bypass the client limit, but the daily cap
+remains. See [Vercel's header contract](https://vercel.com/docs/headers/request-headers).
+
+Set `LINK_CREATION_ENABLED=false` to pause new links while keeping existing
+redirects working. Set `BLOCKED_LINK_HOSTS=blocked.example,other.example` to block
+those hosts and their subdomains during both creation and resolution, including
+previously saved links. Entries are hostnames only, with no scheme, path, port,
+or wildcard; up to 50 entries and 4,096 total characters are accepted. Case,
+international domain names, and trailing dots are normalized. Invalid control
+configuration fails closed. Changes to Vercel environment variables require a
+redeployment to take effect.
+
+Expired client counters are removed during the next admitted creation; there is
+no scheduled cleanup worker. With a stable namespace, the daily cap also bounds
+the number of client counter rows. Avoid changing the namespace to reset limits.
+These controls bound admitted writes; rejected traffic still consumes requests
+and database work. They do not scan destinations for malware or guarantee that
+free hosting allowances cannot be exhausted. Monitor storage and traffic and keep
+creation paused when the service needs operator attention.
 
 ### GET /:code and HEAD /:code
 
@@ -156,10 +204,14 @@ stored destination returns `503` with `LINK_UNAVAILABLE`, without a redirect or
 private exception details. Error responses also use `no-store`. Other methods
 receive `405`. Click tracking is not implemented yet.
 
+A blocked destination returns `403` with `DESTINATION_BLOCKED` and no `Location`,
+including through `HEAD`. The creation quota does not apply to redirects.
+
 ## Architecture and schema
 
 One Next.js App Router application owns pages and backend routes. The Node.js
-route validates input before calling the creation service. That service inserts
+route validates input, checks operator policy, and reserves shared quota before
+calling the creation service. That service inserts
 through Prisma, retrying only unique-index collisions on the short code.
 The redirect service looks up only the destination through the code's unique
 index. Malformed codes are rejected before querying PostgreSQL. Dynamic routing
@@ -172,6 +224,12 @@ and explicit cache headers ensure each valid visit resolves the current record.
 | `destinationUrl` | Text                     | Normalized destination                                          |
 | `createdAt`      | Timestamp with time zone | Database creation-time default                                  |
 
+`RateLimitBucket` stores a unique counter key (`varchar(128)`), positive integer
+`hits`, and indexed `expiresAt` timestamp. A transaction uses conditional SQL
+upserts to reserve the global and client counters atomically. The clock comes
+from PostgreSQL. The additive `add_creation_rate_limits` migration creates this
+table without modifying existing links; apply it before running the new API.
+
 `src/lib/db.ts` is server-only and creates its client lazily. The client is
 reused per process, including development hot reloads, with a pool of two
 connections and 10-second connection and idle timeouts. Each serverless instance
@@ -182,6 +240,7 @@ src/app/                 Pages, metadata, styles, and API routes
 src/components/          Interactive shortening form and result
 src/lib/http/            Bounded JSON request handling
 src/lib/links/           Validation and collision-safe creation
+src/lib/security/        Trusted client identity and shared creation quotas
 src/lib/db.ts            Server-only PostgreSQL client
 prisma/                  Schema and committed SQL migrations
 tests/integration/       PostgreSQL-backed behavior checks
@@ -225,7 +284,8 @@ npm run test:e2e:database
 
 Both database suites require the dedicated local test database. They apply
 committed migrations and verify persistence, rollback, real unique-index
-collisions, concurrent creation, redirects, and API responses. They remove only
+collisions, concurrent creation and quota enforcement, expiry, redirects, and API
+responses. They remove only
 their own records and never fall back to application or production credentials.
 
 The database browser suite starts the production server with its application
@@ -233,6 +293,8 @@ connection explicitly overridden by the guarded test URL. It verifies creation,
 redirect headers, browser navigation, referrer suppression, HEAD, deleted links,
 and unsafe stored data. It also creates a link through the actual form, verifies
 the saved database record, reads the copied URL, and opens the destination.
+It also checks blocked stored destinations and verifies forged forwarded headers
+cannot bypass the local quota. Counter namespaces are unique per test run.
 Destination pages are served by a local test fixture, so no
 external website is required. Run `npm run build` before either browser suite.
 Stop any development server using port 3000 before running the browser suites.

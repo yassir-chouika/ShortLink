@@ -106,8 +106,9 @@ describe('ShortenForm', () => {
 
   it.each([
     [400, 'Enter a complete', true],
+    [403, 'This destination cannot be shortened', true],
     [413, 'Enter a complete', true],
-    [429, 'Please wait a moment', false],
+    [429, 'Link creation limit reached', false],
     [503, 'temporarily unavailable', false],
     [500, 'temporarily unavailable', false],
   ])('presents a safe error for HTTP %i', async (status, message, invalid) => {
@@ -151,6 +152,29 @@ describe('ShortenForm', () => {
       screen.queryByRole('textbox', { name: 'Your short link' }),
     ).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['90', 'about 2 minutes'],
+    ['7200', 'about 2 hours'],
+    ['invalid', 'Please try again later'],
+    ['-10', 'Please try again later'],
+    ['99999999', 'Please try again later'],
+  ])(
+    'presents a bounded Retry-After value: %s',
+    async (retryAfter, message) => {
+      setup();
+      fetchMock.mockResolvedValue(
+        Response.json(
+          {},
+          { status: 429, headers: { 'Retry-After': retryAfter } },
+        ),
+      );
+      fill();
+      submit();
+      expect(await screen.findByRole('alert')).toHaveTextContent(message);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('handles a lost response without automatically retrying the write', async () => {
     setup();

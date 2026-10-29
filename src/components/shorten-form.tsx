@@ -16,6 +16,16 @@ type FormState =
 const INVALID_URL_MESSAGE =
   'Enter a complete http:// or https:// link without spaces, a username, or a password.';
 
+function rateLimitMessage(response: Response): string {
+  const seconds = Number(response.headers.get('Retry-After'));
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 86_400) {
+    return 'Link creation limit reached. Please try again later.';
+  }
+  const unit = seconds >= 3600 ? 'hour' : 'minute';
+  const amount = Math.ceil(seconds / (unit === 'hour' ? 3600 : 60));
+  return `Link creation limit reached. Try again in about ${amount} ${unit}${amount === 1 ? '' : 's'}.`;
+}
+
 function readCreatedLink(payload: unknown): CreatedLink {
   if (typeof payload !== 'object' || payload === null || !('data' in payload)) {
     throw new Error('Invalid response.');
@@ -161,12 +171,15 @@ export function ShortenForm() {
         cache: 'no-store',
       });
       if (!response.ok) {
-        const field = response.status === 400 || response.status === 413;
-        const message = field
-          ? INVALID_URL_MESSAGE
-          : response.status === 429
-            ? 'A few too many links at once. Please wait a moment before trying again.'
-            : 'Link creation is temporarily unavailable. Please try again later.';
+        const field = [400, 403, 413].includes(response.status);
+        const message =
+          response.status === 403
+            ? 'This destination cannot be shortened. Please use another link.'
+            : field
+              ? INVALID_URL_MESSAGE
+              : response.status === 429
+                ? rateLimitMessage(response)
+                : 'Link creation is temporarily unavailable. Please try again later.';
         setState({ status: 'error', message, field });
         if (field) inputRef.current?.focus();
         return;

@@ -13,3 +13,11 @@ model Link {
   destinationUrl String   @db.Text
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
 }
+
+model RateLimitBucket {
+  key       String   @id @db.VarChar(128)
+  hits      Int
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}

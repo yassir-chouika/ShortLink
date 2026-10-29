@@ -1,10 +1,30 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LinkValidationError } from './errors';
 import { resolveLink } from './resolve-link';
+import { DestinationBlockedError } from './policy';
 
 vi.mock('server-only', () => ({}));
+afterEach(() => vi.unstubAllEnvs());
 
 describe('short-link resolution', () => {
+  it('blocks an existing destination after an operator adds its host', async () => {
+    vi.stubEnv('BLOCKED_LINK_HOSTS', 'example.com');
+    await expect(
+      resolveLink(
+        'Ab12_cd3',
+        vi.fn().mockResolvedValue('https://example.com/'),
+      ),
+    ).rejects.toBeInstanceOf(DestinationBlockedError);
+  });
+  it('keeps existing redirects working while creation is paused', async () => {
+    vi.stubEnv('LINK_CREATION_ENABLED', 'false');
+    expect(
+      await resolveLink(
+        'Ab12_cd3',
+        vi.fn().mockResolvedValue('https://example.com/'),
+      ),
+    ).toBe('https://example.com/');
+  });
   it.each([
     '',
     'short',

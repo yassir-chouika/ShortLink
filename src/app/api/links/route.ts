@@ -3,18 +3,51 @@ import { jsonError, NO_STORE_HEADERS } from '@/lib/http/responses';
 import { createLink } from '@/lib/links/create-link';
 import { CodeAllocationError, LinkValidationError } from '@/lib/links/errors';
 import { validateLinkInput } from '@/lib/links/validation';
+import {
+  assertCreationEnabled,
+  assertDestinationAllowed,
+  CreationPausedError,
+  DestinationBlockedError,
+} from '@/lib/links/policy';
+import { getCreationClientKey } from '@/lib/security/creation-identity';
+import {
+  reserveCreationQuota,
+  CreationRateLimitError,
+} from '@/lib/security/creation-quota';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    assertCreationEnabled();
     const destinationUrl = validateLinkInput(await readJsonBody(request));
+    assertDestinationAllowed(destinationUrl);
+    await reserveCreationQuota(getCreationClientKey(request));
     const link = await createLink(destinationUrl);
     return Response.json(
       { data: link },
       { status: 201, headers: NO_STORE_HEADERS },
     );
   } catch (error) {
+    if (error instanceof CreationPausedError) {
+      return jsonError(
+        503,
+        'LINK_CREATION_PAUSED',
+        'Link creation is temporarily paused. Please try again later.',
+      );
+    }
+    if (error instanceof DestinationBlockedError) {
+      return jsonError(
+        403,
+        'DESTINATION_BLOCKED',
+        'This destination is not available for shortening.',
+      );
+    }
+    if (error instanceof CreationRateLimitError) {
+      const response = jsonError(429, 'RATE_LIMITED', error.message);
+      response.headers.set('Retry-After', String(error.retryAfter));
+      return response;
+    }
     if (error instanceof RequestBodyError) {
       return jsonError(error.status, error.code, error.message);
     }

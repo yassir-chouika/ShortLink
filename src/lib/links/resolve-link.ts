@@ -1,6 +1,7 @@
 import 'server-only';
 import { getDb } from '@/lib/db';
 import { validateDestinationUrl } from './validation';
+import { assertDestinationAllowed } from './policy';
 
 type DestinationLookup = (code: string) => Promise<string | null>;
 
@@ -21,5 +22,7 @@ export async function resolveLink(
 
   const destination = await lookup(code);
   if (destination === null) return null;
-  return validateDestinationUrl(destination);
+  const validated = validateDestinationUrl(destination);
+  assertDestinationAllowed(validated);
+  return validated;
 }
