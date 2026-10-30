@@ -4,15 +4,18 @@ import { resolveLink } from '@/lib/links/resolve-link';
 import { LinkValidationError } from '@/lib/links/errors';
 import { DestinationBlockedError } from '@/lib/links/policy';
 import { GET, HEAD } from './route';
+import { recordRedirect } from '@/lib/links/analytics';
 
 vi.mock('@/lib/links/resolve-link', () => ({ resolveLink: vi.fn() }));
 vi.mock('server-only', () => ({}));
+vi.mock('@/lib/links/analytics', () => ({ recordRedirect: vi.fn() }));
 
 const destination = 'https://example.com/article?saved=1#details';
 const context = { params: Promise.resolve({ code: 'Ab12_cd3' }) };
 const request = new Request('http://localhost/Ab12_cd3?ignored=1');
 
 beforeEach(() => {
+  vi.mocked(recordRedirect).mockResolvedValue(undefined);
   vi.mocked(resolveLink).mockResolvedValue(destination);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -30,6 +33,7 @@ describe('short-code redirect route', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect((await response.json()).error.code).toBe('DESTINATION_BLOCKED');
     expect(console.error).not.toHaveBeenCalled();
+    expect(recordRedirect).not.toHaveBeenCalled();
   });
   it('returns a temporary uncached redirect to the saved URL', async () => {
     const response = await GET(request, context);
@@ -41,6 +45,7 @@ describe('short-code redirect route', () => {
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await response.text()).toBe('');
     expect(resolveLink).toHaveBeenCalledExactlyOnceWith('Ab12_cd3');
+    expect(recordRedirect).toHaveBeenCalledExactlyOnceWith('Ab12_cd3');
   });
 
   it('returns an uncached 404 for a missing link', async () => {
@@ -50,6 +55,7 @@ describe('short-code redirect route', () => {
     expect(response.headers.get('location')).toBeNull();
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect((await response.json()).error.code).toBe('LINK_NOT_FOUND');
+    expect(recordRedirect).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -90,6 +96,21 @@ describe('short-code redirect route', () => {
         status === 302 ? destination : null,
       );
       expect(await response.text()).toBe('');
+      expect(recordRedirect).not.toHaveBeenCalled();
     },
   );
+
+  it('keeps a successful redirect when tracking fails and logs only its type', async () => {
+    vi.mocked(recordRedirect).mockRejectedValue(
+      new Error('private database secret'),
+    );
+    const response = await GET(request, context);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(destination);
+    expect(console.error).toHaveBeenCalledExactlyOnceWith(
+      'Redirect tracking failed.',
+      { type: 'Error' },
+    );
+    expect(await response.text()).not.toContain('secret');
+  });
 });

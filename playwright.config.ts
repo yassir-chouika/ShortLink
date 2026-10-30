@@ -19,6 +19,7 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 60_000,
     env: {
+      DATABASE_URL: '',
       VERCEL: '',
       LINK_CREATION_ENABLED: 'true',
       BLOCKED_LINK_HOSTS: 'blocked.example',
