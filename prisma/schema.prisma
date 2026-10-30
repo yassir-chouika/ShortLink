@@ -8,10 +8,21 @@ datasource db {
 }
 
 model Link {
-  id             String   @id @default(uuid()) @db.Uuid
-  code           String   @unique @db.VarChar(32)
-  destinationUrl String   @db.Text
-  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  id             String         @id @default(uuid()) @db.Uuid
+  code           String         @unique @db.VarChar(32)
+  destinationUrl String         @db.Text
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  totalClicks    BigInt         @default(0)
+  clickDays      LinkClickDay[]
+}
+
+model LinkClickDay {
+  linkId String   @db.Uuid
+  day    DateTime @db.Date
+  clicks BigInt   @default(1)
+  link   Link     @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@id([linkId, day])
 }
 
 model RateLimitBucket {

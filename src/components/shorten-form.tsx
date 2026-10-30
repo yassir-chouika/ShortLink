@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { LinkQrCode } from './link-qr-code';
 import {
@@ -133,6 +134,18 @@ function LinkResult({ shortUrl, destinationUrl }: CreatedLink) {
         </a>
       </div>
       <LinkQrCode shortUrl={shortUrl} />
+      <div className="mt-5 text-sm">
+        <Link
+          href={`/stats${new URL(shortUrl).pathname}`}
+          prefetch={false}
+          className="font-semibold text-emerald-900 underline underline-offset-4"
+        >
+          View stats
+        </Link>
+        <p className="mt-2 text-xs leading-relaxed text-stone-600">
+          Anyone with your short code can view its aggregate counts.
+        </p>
+      </div>
     </section>
   );
 }

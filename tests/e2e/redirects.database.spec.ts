@@ -116,6 +116,7 @@ test('a browser follows the saved destination without forwarding the referrer', 
 
 test('HEAD returns the redirect headers without a body', async ({
   request,
+  page,
 }) => {
   const destination = `${destinationOrigin}/${runId}/head`;
   const code = await createViaApi(request, destination);
@@ -123,6 +124,11 @@ test('HEAD returns the redirect headers without a body', async ({
   expect(response.status()).toBe(302);
   expect(response.headers().location).toBe(destination);
   expect(await response.text()).toBe('');
+  await page.goto(`/stats/${code}`);
+  await expect(
+    page.getByText(/No redirects recorded in the last seven days/),
+  ).toBeVisible();
+  await expect(page.getByRole('table').getByRole('row')).toHaveCount(8);
 });
 
 test('the form creates, copies, and opens a persisted short link', async ({
@@ -179,6 +185,35 @@ test('the form creates, copies, and opens a persisted short link', async ({
   ).toBeVisible();
   expect(destinationReferrer).toBeUndefined();
   await popup.close();
+  await page.getByRole('link', { name: 'View stats' }).click();
+  await expect(page).toHaveURL(`/stats/${data.code}`);
+  await expect(
+    page.getByRole('heading', { name: 'Your link, in numbers.' }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('term')
+      .filter({ hasText: 'Total recorded' })
+      .locator('..')
+      .getByRole('definition'),
+  ).toHaveText('2');
+  await page.reload();
+  await expect(
+    page
+      .getByRole('term')
+      .filter({ hasText: 'Total recorded' })
+      .locator('..')
+      .getByRole('definition'),
+  ).toHaveText('2');
+  expect(
+    (await db.link.findUniqueOrThrow({ where: { id: data.id } })).totalClicks,
+  ).toBe(BigInt(2));
+  await page.setViewportSize({ width: 320, height: 812 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
 });
 
 test('a deleted link returns 404 rather than a cached redirect', async ({
@@ -231,6 +266,10 @@ test('an existing link to a blocked host cannot redirect through GET or HEAD', a
   const head = await request.head(`/${link.code}`, { maxRedirects: 0 });
   expect(head.status()).toBe(403);
   expect(await head.text()).toBe('');
+  const statsResponse = await request.get(`/stats/${link.code}`);
+  const statsHtml = await statsResponse.text();
+  expect(statsHtml).toContain('Stats not found.');
+  expect(statsHtml).not.toContain(link.destinationUrl);
 });
 
 test('forged forwarded headers cannot bypass the local creation limit', async ({

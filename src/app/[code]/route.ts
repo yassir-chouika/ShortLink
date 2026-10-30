@@ -1,12 +1,14 @@
 import { jsonError, NO_STORE_HEADERS } from '@/lib/http/responses';
 import { resolveLink } from '@/lib/links/resolve-link';
 import { DestinationBlockedError } from '@/lib/links/policy';
+import { recordRedirect } from '@/lib/links/analytics';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 async function resolveRedirect(
   context: RouteContext<'/[code]'>,
+  track: boolean,
 ): Promise<Response> {
   try {
     const { code } = await context.params;
@@ -19,6 +21,16 @@ async function resolveRedirect(
       );
     }
 
+    if (track) {
+      try {
+        await recordRedirect(code);
+      } catch (error) {
+        // Analytics are best-effort; don't turn a valid destination into an error.
+        console.error('Redirect tracking failed.', {
+          type: error instanceof Error ? error.name : 'UnknownError',
+        });
+      }
+    }
     return new Response(null, {
       status: 302,
       headers: {
@@ -51,14 +63,14 @@ export async function GET(
   _request: Request,
   context: RouteContext<'/[code]'>,
 ): Promise<Response> {
-  return resolveRedirect(context);
+  return resolveRedirect(context, true);
 }
 
 export async function HEAD(
   _request: Request,
   context: RouteContext<'/[code]'>,
 ): Promise<Response> {
-  const response = await resolveRedirect(context);
+  const response = await resolveRedirect(context, false);
   return new Response(null, {
     status: response.status,
     headers: response.headers,
