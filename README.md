@@ -4,7 +4,8 @@ A lightweight URL shortener built with Next.js, strict TypeScript, PostgreSQL,
 Prisma, and Tailwind CSS.
 
 **Status:** shortening, copyable links, QR downloads, shared creation limits,
-operator controls, and aggregate redirect analytics are implemented.
+operator controls, aggregate redirect analytics, and friendly redirect error
+pages are implemented.
 
 **Live demo:** pending deployment.
 
@@ -224,6 +225,30 @@ receive `405`. Successful GET redirects record an aggregate count; HEAD does not
 
 A blocked destination returns `403` with `DESTINATION_BLOCKED` and no `Location`,
 including through `HEAD`. The creation quota does not apply to redirects.
+
+### Redirect error pages
+
+Browsers receive a styled page for missing (`404`), blocked (`403`), and
+unavailable (`503`) short links at the original URL. These pages work without
+JavaScript, offer a home link, and provide a manual **Try again** link for `503`.
+Errors never disclose the requested code, destination, or backend exception.
+They remain non-cacheable and request no indexing; they never record clicks.
+
+Redirect errors use the `Accept` header to choose HTML or the existing JSON shape.
+An explicit acceptable `text/html` preference selects HTML when it outranks JSON;
+an equal-quality explicit `application/json` preference wins the tie. Requests
+without `Accept`, with only wildcards, or with an explicit JSON preference keep
+JSON. `text/html;q=0` does not select HTML. Error responses include `Vary: Accept`,
+`Referrer-Policy: no-referrer`, and `X-Robots-Tag: noindex, nofollow`. HTML also
+uses a restrictive content-security policy with a hash-authorized stylesheet and
+no scripts or external assets. HEAD selects the same headers without a body.
+Successful `302` redirects and the POST API contract are unchanged.
+
+```bash
+curl -i -H 'Accept: application/json' http://localhost:3000/not-a-link
+curl -i -H 'Accept: text/html' http://localhost:3000/not-a-link
+curl -I -H 'Accept: text/html' http://localhost:3000/not-a-link
+```
 
 ## Link stats
 

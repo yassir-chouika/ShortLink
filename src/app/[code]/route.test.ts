@@ -25,6 +25,32 @@ afterEach(() => {
 });
 
 describe('short-code redirect route', () => {
+  it.each([403, 404, 503] as const)(
+    'serves a browser HTML error with the original %i status and HEAD headers',
+    async (status) => {
+      if (status === 403)
+        vi.mocked(resolveLink).mockRejectedValue(new DestinationBlockedError());
+      if (status === 404) vi.mocked(resolveLink).mockResolvedValue(null);
+      if (status === 503)
+        vi.mocked(resolveLink).mockRejectedValue(
+          new Error('private database details'),
+        );
+      const browser = new Request(request.url, {
+        headers: { Accept: 'text/html' },
+      });
+      const get = await GET(browser, context);
+      const head = await HEAD(
+        new Request(browser.url, { method: 'HEAD', headers: browser.headers }),
+        context,
+      );
+      expect(get.status).toBe(status);
+      expect(get.headers.get('content-type')).toContain('text/html');
+      expect([...head.headers]).toEqual([...get.headers]);
+      expect(await head.text()).toBe('');
+      expect(await get.text()).not.toContain('private database details');
+      expect(recordRedirect).not.toHaveBeenCalled();
+    },
+  );
   it('returns 403 without a redirect or private destination for a blocked host', async () => {
     vi.mocked(resolveLink).mockRejectedValue(new DestinationBlockedError());
     const response = await GET(request, context);
