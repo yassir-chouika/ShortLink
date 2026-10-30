@@ -1,4 +1,5 @@
-import { jsonError, NO_STORE_HEADERS } from '@/lib/http/responses';
+import { NO_STORE_HEADERS } from '@/lib/http/responses';
+import { redirectError } from '@/lib/http/redirect-error';
 import { resolveLink } from '@/lib/links/resolve-link';
 import { DestinationBlockedError } from '@/lib/links/policy';
 import { recordRedirect } from '@/lib/links/analytics';
@@ -7,6 +8,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 async function resolveRedirect(
+  request: Request,
   context: RouteContext<'/[code]'>,
   track: boolean,
 ): Promise<Response> {
@@ -14,11 +16,7 @@ async function resolveRedirect(
     const { code } = await context.params;
     const destination = await resolveLink(code);
     if (destination === null) {
-      return jsonError(
-        404,
-        'LINK_NOT_FOUND',
-        'This short link could not be found.',
-      );
+      return redirectError(request, 404);
     }
 
     if (track) {
@@ -41,36 +39,28 @@ async function resolveRedirect(
     });
   } catch (error) {
     if (error instanceof DestinationBlockedError) {
-      return jsonError(
-        403,
-        'DESTINATION_BLOCKED',
-        'This short link is not available.',
-      );
+      return redirectError(request, 403);
     }
     // Stored URLs and database exception messages can contain private details.
     console.error('Short-link resolution failed.', {
       type: error instanceof Error ? error.name : 'UnknownError',
     });
-    return jsonError(
-      503,
-      'LINK_UNAVAILABLE',
-      'This short link is temporarily unavailable. Please try again later.',
-    );
+    return redirectError(request, 503);
   }
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: RouteContext<'/[code]'>,
 ): Promise<Response> {
-  return resolveRedirect(context, true);
+  return resolveRedirect(request, context, true);
 }
 
 export async function HEAD(
-  _request: Request,
+  request: Request,
   context: RouteContext<'/[code]'>,
 ): Promise<Response> {
-  const response = await resolveRedirect(context, false);
+  const response = await resolveRedirect(request, context, false);
   return new Response(null, {
     status: response.status,
     headers: response.headers,

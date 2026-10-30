@@ -218,6 +218,7 @@ test('the form creates, copies, and opens a persisted short link', async ({
 
 test('a deleted link returns 404 rather than a cached redirect', async ({
   request,
+  page,
 }) => {
   const code = await createViaApi(
     request,
@@ -231,6 +232,10 @@ test('a deleted link returns 404 rather than a cached redirect', async ({
   expect(response.status()).toBe(404);
   expect(response.headers().location).toBeUndefined();
   expect(response.headers()['cache-control']).toBe('no-store');
+  expect((await page.goto(`/${code}`))?.status()).toBe(404);
+  await expect(
+    page.getByRole('heading', { name: 'This link is missing.' }),
+  ).toBeVisible();
 });
 
 test('unsafe stored destinations cannot become redirect headers', async ({
@@ -251,6 +256,7 @@ test('unsafe stored destinations cannot become redirect headers', async ({
 
 test('an existing link to a blocked host cannot redirect through GET or HEAD', async ({
   request,
+  page,
 }) => {
   const link = await db.link.create({
     data: {
@@ -270,6 +276,14 @@ test('an existing link to a blocked host cannot redirect through GET or HEAD', a
   const statsHtml = await statsResponse.text();
   expect(statsHtml).toContain('Stats not found.');
   expect(statsHtml).not.toContain(link.destinationUrl);
+  expect((await page.goto(`/${link.code}`))?.status()).toBe(403);
+  await expect(
+    page.getByRole('heading', { name: 'This link isn’t available.' }),
+  ).toBeVisible();
+  expect(await page.content()).not.toContain(link.destinationUrl);
+  expect(
+    (await db.link.findUniqueOrThrow({ where: { id: link.id } })).totalClicks,
+  ).toBe(BigInt(0));
 });
 
 test('forged forwarded headers cannot bypass the local creation limit', async ({
